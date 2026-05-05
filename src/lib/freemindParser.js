@@ -65,3 +65,54 @@ function parseNode(xmlNode) {
 
     return nodeData;
 }
+
+/**
+ * Converts the internal node structure back into a Freemind XML string.
+ */
+export function exportFreemind(rootNode) {
+    const xmlDoc = document.implementation.createDocument(null, "map");
+    const mapElement = xmlDoc.documentElement;
+    mapElement.setAttribute("version", "1.0.1");
+
+    function serializeNode(dataNode) {
+        const xmlNode = xmlDoc.createElement("node");
+        xmlNode.setAttribute("ID", dataNode.id);
+        xmlNode.setAttribute("TEXT", dataNode.text || "");
+        
+        if (dataNode.folded) xmlNode.setAttribute("FOLDED", "true");
+        if (dataNode.position) xmlNode.setAttribute("POSITION", dataNode.position);
+        if (dataNode.link) xmlNode.setAttribute("LINK", dataNode.link);
+
+        if (dataNode.style) {
+            if (dataNode.style.color) xmlNode.setAttribute("COLOR", dataNode.style.color);
+            if (dataNode.style.backgroundColor) xmlNode.setAttribute("BACKGROUND_COLOR", dataNode.style.backgroundColor);
+            
+            if (dataNode.style.fontFamily || dataNode.style.fontSize || dataNode.style.fontWeight || dataNode.style.fontStyle) {
+                const fontNode = xmlDoc.createElement("font");
+                if (dataNode.style.fontFamily) fontNode.setAttribute("NAME", dataNode.style.fontFamily);
+                if (dataNode.style.fontSize) fontNode.setAttribute("SIZE", dataNode.style.fontSize);
+                if (dataNode.style.fontWeight === "bold") fontNode.setAttribute("BOLD", "true");
+                if (dataNode.style.fontStyle === "italic") fontNode.setAttribute("ITALIC", "true");
+                xmlNode.appendChild(fontNode);
+            }
+        }
+
+        if (dataNode.icon) {
+            const iconNode = xmlDoc.createElement("icon");
+            iconNode.setAttribute("BUILTIN", dataNode.icon);
+            xmlNode.appendChild(iconNode);
+        }
+
+        if (dataNode.children && Array.isArray(dataNode.children)) {
+            dataNode.children.forEach(child => {
+                xmlNode.appendChild(serializeNode(child));
+            });
+        }
+
+        return xmlNode;
+    }
+
+    mapElement.appendChild(serializeNode(rootNode));
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(xmlDoc);
+}
