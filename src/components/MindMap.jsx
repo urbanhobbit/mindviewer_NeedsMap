@@ -2,10 +2,17 @@ import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import * as d3 from 'd3';
 import { motion } from 'framer-motion';
 
-const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onSelect }) => {
+const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onSelect, isEditing, onStartEdit, onEndEdit }) => {
     const nodeRef = useRef(null);
-    const [isEditing, setIsEditing] = useState(false);
-    const [editText, setEditText] = useState(node.data.text);
+    const [editText, setEditText] = useState(node.data.text || '');
+    const lastClickRef = useRef(0);
+
+    // Reset local edit text when editing starts
+    useEffect(() => {
+        if (isEditing) {
+            setEditText(node.data.text || '');
+        }
+    }, [isEditing, node.data.text]);
 
     useEffect(() => {
         if (!nodeRef.current || isEditing) return;
@@ -22,17 +29,20 @@ const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onS
         d3.select(nodeRef.current).call(drag);
     }, [onDrag, node.data.id, isEditing, onSelect]);
 
-    // Focus edit input if selected and user starts typing (handled in parent, but double click triggers edit here)
-    const handleDoubleClick = (e) => {
+    const handleClick = (e) => {
         e.stopPropagation();
-        if (!isEditing) {
-            setIsEditing(true);
-            setEditText(node.data.text);
+        const now = Date.now();
+        if (now - lastClickRef.current < 300) {
+            // Double click detected (bypassing D3's drag event block)
+            onStartEdit(node.data.id);
+        } else {
+            onSelect(node.data.id);
         }
+        lastClickRef.current = now;
     };
 
     const handleSaveEdit = () => {
-        setIsEditing(false);
+        onEndEdit();
         if (editText !== node.data.text) {
             onEdit(node.data.id, editText);
         }
@@ -54,8 +64,7 @@ const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onS
                 cursor: isEditing ? 'text' : 'pointer',
                 zIndex: isSelected ? 10 : 1
             }}
-            onClick={(e) => { e.stopPropagation(); onSelect(node.data.id); }}
-            onDoubleClick={handleDoubleClick}
+            onClick={handleClick}
         >
             <div
                 className="node-content"
@@ -109,7 +118,10 @@ const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onS
                         value={editText}
                         onChange={e => setEditText(e.target.value)}
                         onBlur={handleSaveEdit}
-                        onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(); }}
+                        onKeyDown={e => { 
+                            if (e.key === 'Enter') handleSaveEdit(); 
+                            if (e.key === 'Escape') onEndEdit(); // cancel edit
+                        }}
                         autoFocus
                         style={{ 
                             border: 'none', 
@@ -148,11 +160,11 @@ const MindMap = ({ data, onChange, externalCommand }) => {
     const [foldedIds, setFoldedIds] = useState(new Set());
     const [dragOverrides, setDragOverrides] = useState({});
     const [selectedNodeId, setSelectedNodeId] = useState(null);
+    const [editingNodeId, setEditingNodeId] = useState(null);
 
     const containerRef = useRef(null);
     const wrapperRef = useRef(null);
 
-    // Initial setup
     useEffect(() => {
         if (!data) return;
         const initialFolded = new Set();
@@ -163,13 +175,11 @@ const MindMap = ({ data, onChange, externalCommand }) => {
         traverse(data);
         setFoldedIds(initialFolded);
         
-        // Select root node initially if nothing is selected
         if (!selectedNodeId) {
             setSelectedNodeId(data.id);
         }
     }, [data]);
 
-    // Setup Zoom
     useEffect(() => {
         if (!containerRef.current || !wrapperRef.current) return;
 
@@ -181,25 +191,21 @@ const MindMap = ({ data, onChange, externalCommand }) => {
 
         d3.select(containerRef.current).call(zoom);
 
-        // Center map initially
         const centerMap = () => {
             d3.select(containerRef.current)
               .transition().duration(500)
               .call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth / 3, window.innerHeight / 2).scale(1));
         };
         
-        // Only center on first load (when transform is exactly 0,0)
         if (transform.x === 0 && transform.y === 0) {
             centerMap();
         }
 
-        // Attach center function to window for external command access
         window.fitMindMap = centerMap;
         window.zoomMindMap = (factor) => d3.select(containerRef.current).transition().call(zoom.scaleBy, factor);
 
     }, []);
 
-    // Handle External Commands from Toolbar
     useEffect(() => {
         if (!externalCommand) return;
         
@@ -211,14 +217,7 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                 if (selectedNodeId && selectedNodeId !== data.id) handleDeleteNode(selectedNodeId);
                 break;
             case 'EDIT_NODE':
-                if (selectedNodeId) {
-                    // Trigger double click on the selected node conceptually. 
-                    // To do this cleanly, we can temporarily change the node text to "Edit Mode" 
-                    // or ideally just focus an input. For simplicity in this structure, we rely on the user to double click,
-                    // but we can simulate it by prompting.
-                    const newText = prompt("Edit node text:");
-                    if (newText !== null) handleEditNode(selectedNodeId, newText);
-                }
+                if (selectedNodeId) setEditingNodeId(selectedNodeId);
                 break;
             case 'ZOOM_IN':
                 if (window.zoomMindMap) window.zoomMindMap(1.2);
@@ -228,35 +227,36 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                 break;
             case 'FIT_MAP':
                 if (window.fitMindMap) window.fitMindMap();
-                setDragOverrides({}); // Reset manual drags when fitting map
+                setDragOverrides({});
                 break;
         }
     }, [externalCommand]);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e) => {
-            // Don't trigger if user is typing in an input
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-            if (selectedNodeId) {
+            if (selectedNodeId && !editingNodeId) {
                 if (e.key === 'Tab') {
-                    e.preventDefault(); // prevent losing focus
+                    e.preventDefault();
                     handleAddChild(selectedNodeId);
                 } else if (e.key === 'Backspace' || e.key === 'Delete') {
-                    if (selectedNodeId !== data.id) { // prevent deleting root
+                    if (selectedNodeId !== data.id) {
                         handleDeleteNode(selectedNodeId);
                     }
                 } else if (e.key === 'Enter') {
-                    // Could add a sibling, but for now just add child
-                     handleAddChild(selectedNodeId);
+                    e.preventDefault();
+                    handleAddChild(selectedNodeId);
+                } else if (e.key === ' ') {
+                    e.preventDefault();
+                    setEditingNodeId(selectedNodeId);
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedNodeId, data]);
+    }, [selectedNodeId, editingNodeId, data]);
 
     const toggleFold = (id) => {
         setFoldedIds(prev => {
@@ -298,7 +298,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
     };
 
     const handleEditNode = (id, newText) => {
-        if (!newText.trim()) return;
         const newData = cloneData();
         traverseAndModify(newData, id, (node) => {
             node.text = newText;
@@ -318,7 +317,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                 text: 'New Node',
                 children: []
             });
-            // Ensure parent is unfolded
             setFoldedIds(prev => {
                 const next = new Set(prev);
                 next.delete(parentId);
@@ -328,14 +326,15 @@ const MindMap = ({ data, onChange, externalCommand }) => {
         });
         
         onChange(newData, `Added child node`);
-        setSelectedNodeId(newId); // auto select the new node
+        setSelectedNodeId(newId);
+        setEditingNodeId(newId); // Automatically open edit mode for new node
     };
 
     const handleDeleteNode = (id) => {
         const newData = cloneData();
         traverseAndModify(newData, id, () => 'DELETE');
         onChange(newData, `Deleted node`);
-        setSelectedNodeId(data.id); // fallback selection to root
+        setSelectedNodeId(data.id);
     };
 
     const { nodes, links } = useMemo(() => {
@@ -343,7 +342,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
 
         const hierarchy = d3.hierarchy(data, d => foldedIds.has(d.id) ? null : d.children);
         
-        // MindMup style spacing - horizontal layout
         const treeLayout = d3.tree()
             .nodeSize([40, 200])
             .separation((a, b) => a.parent === b.parent ? 1 : 1.2);
@@ -352,7 +350,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
 
         const nodesList = hierarchy.descendants();
         
-        // Apply overrides cumulatively
         nodesList.forEach(node => {
             const localOverride = dragOverrides[node.data.id] || { x: 0, y: 0 };
             const parentOverride = node.parent && node.parent.totalOverride ? node.parent.totalOverride : { x: 0, y: 0 };
@@ -372,7 +369,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
         };
     }, [data, foldedIds, dragOverrides]);
 
-    // MindMup style thin straight-ish links
     const linkPath = d3.linkHorizontal()
         .x(d => d.y)
         .y(d => d.x);
@@ -381,7 +377,7 @@ const MindMap = ({ data, onChange, externalCommand }) => {
         <div
             ref={containerRef}
             className="mindmap-container"
-            onClick={() => setSelectedNodeId(null)} // deselect on background click
+            onClick={() => { setSelectedNodeId(null); setEditingNodeId(null); }}
             style={{
                 width: '100%',
                 height: '100%',
@@ -404,7 +400,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                 <svg style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}>
                     <g>
                         {links.map((link, i) => {
-                            // Link colors depend on depth for visual hierarchy
                             const isRootLink = link.source.depth === 0;
                             return (
                                 <path 
@@ -433,6 +428,9 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                                 onEdit={handleEditNode}
                                 isSelected={selectedNodeId === node.data.id}
                                 onSelect={setSelectedNodeId}
+                                isEditing={editingNodeId === node.data.id}
+                                onStartEdit={setEditingNodeId}
+                                onEndEdit={() => setEditingNodeId(null)}
                             />
                         ))}
                     </div>
