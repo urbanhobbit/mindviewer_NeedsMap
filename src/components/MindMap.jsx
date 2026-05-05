@@ -1,10 +1,12 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import * as d3 from 'd3';
 import { motion } from 'framer-motion';
+import { Plus, Trash2, Edit2 } from 'lucide-react';
 
-const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onSelect, isEditing, onStartEdit, onEndEdit }) => {
+const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onSelect, isEditing, onStartEdit, onEndEdit, onAddChild, onDelete }) => {
     const nodeRef = useRef(null);
     const [editText, setEditText] = useState(node.data.text || '');
+    const [isHovered, setIsHovered] = useState(false);
     const lastClickRef = useRef(0);
 
     // Reset local edit text when editing starts
@@ -62,14 +64,16 @@ const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onS
                 left: 0,
                 pointerEvents: 'auto',
                 cursor: isEditing ? 'text' : 'pointer',
-                zIndex: isSelected ? 10 : 1
+                zIndex: isSelected || isHovered ? 10 : 1
             }}
             onClick={handleClick}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
         >
             <div
                 className="node-content"
                 style={{
-                    background: node.depth === 0 ? '#e0f2fe' : (isSelected ? '#f3f4f6' : 'transparent'),
+                    background: node.depth === 0 ? '#e0f2fe' : (isSelected ? '#f3f4f6' : '#ffffff'),
                     color: '#333',
                     border: isSelected ? '2px solid #3b82f6' : (node.depth === 0 ? '2px solid #60a5fa' : '2px solid transparent'),
                     borderBottom: !isSelected && node.depth !== 0 ? '1px solid #ccc' : undefined,
@@ -82,7 +86,7 @@ const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onS
                     alignItems: 'center',
                     gap: '6px',
                     userSelect: isEditing ? 'text' : 'none',
-                    boxShadow: isSelected ? '0 4px 12px rgba(59, 130, 246, 0.2)' : 'none',
+                    boxShadow: isSelected || isHovered ? '0 4px 12px rgba(59, 130, 246, 0.2)' : 'none',
                     transition: 'all 0.1s ease'
                 }}
             >
@@ -150,6 +154,23 @@ const Node = ({ node, index, onDrag, onToggle, isFolded, onEdit, isSelected, onS
                 ) : (
                     <span>{node.data.text || ' '}</span>
                 )}
+
+                {/* Edit Controls (Visible on Hover like the old way) */}
+                {isHovered && !isEditing && (
+                    <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
+                        <button onClick={(e) => { e.stopPropagation(); onAddChild(node.data.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#22c55e', padding: 2 }} title="Add Child">
+                            <Plus size={14} />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onStartEdit(node.data.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', padding: 2 }} title="Edit">
+                            <Edit2 size={14} />
+                        </button>
+                        {node.depth > 0 && (
+                            <button onClick={(e) => { e.stopPropagation(); onDelete(node.data.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }} title="Delete">
+                                <Trash2 size={14} />
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         </motion.div>
     );
@@ -210,15 +231,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
         if (!externalCommand) return;
         
         switch (externalCommand.type) {
-            case 'ADD_CHILD':
-                if (selectedNodeId) handleAddChild(selectedNodeId);
-                break;
-            case 'DELETE_NODE':
-                if (selectedNodeId && selectedNodeId !== data.id) handleDeleteNode(selectedNodeId);
-                break;
-            case 'EDIT_NODE':
-                if (selectedNodeId) setEditingNodeId(selectedNodeId);
-                break;
             case 'ZOOM_IN':
                 if (window.zoomMindMap) window.zoomMindMap(1.2);
                 break;
@@ -231,32 +243,6 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                 break;
         }
     }, [externalCommand]);
-
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-            if (selectedNodeId && !editingNodeId) {
-                if (e.key === 'Tab') {
-                    e.preventDefault();
-                    handleAddChild(selectedNodeId);
-                } else if (e.key === 'Backspace' || e.key === 'Delete') {
-                    if (selectedNodeId !== data.id) {
-                        handleDeleteNode(selectedNodeId);
-                    }
-                } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddChild(selectedNodeId);
-                } else if (e.key === ' ') {
-                    e.preventDefault();
-                    setEditingNodeId(selectedNodeId);
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedNodeId, editingNodeId, data]);
 
     const toggleFold = (id) => {
         setFoldedIds(prev => {
@@ -431,6 +417,8 @@ const MindMap = ({ data, onChange, externalCommand }) => {
                                 isEditing={editingNodeId === node.data.id}
                                 onStartEdit={setEditingNodeId}
                                 onEndEdit={() => setEditingNodeId(null)}
+                                onAddChild={handleAddChild}
+                                onDelete={handleDeleteNode}
                             />
                         ))}
                     </div>
