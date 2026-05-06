@@ -145,15 +145,15 @@ export default function Viewer() {
         reader.readAsText(file);
     };
 
-    const loadDemo = () => {
-        setFileName('demo.mm');
-        fetch('/demo.mm')
+    const loadDefaultMap = () => {
+        setFileName('Callistay_Sonrasi.mm');
+        fetch('Callistay_Sonrasi.mm')
             .then(res => res.text())
             .then(text => {
                 const parsed = parseFreemind(text);
                 loadInitialData(parsed);
             })
-            .catch(err => setError("Failed to load demo: " + err.message));
+            .catch(err => setError("Failed to load default map: " + err.message));
     };
 
     const handleDataChange = async (newData, actionDescription) => {
@@ -341,7 +341,7 @@ export default function Viewer() {
                                 <input type="file" accept=".mm,.xml" onChange={handleFileUpload} style={{ display: 'none' }} />
                             </label>
 
-                            <button onClick={loadDemo} style={{
+                            <button onClick={loadDefaultMap} style={{
                                 background: 'white',
                                 border: '1px solid #ccc',
                                 color: '#333',
@@ -351,7 +351,7 @@ export default function Viewer() {
                                 fontWeight: '500',
                                 boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                             }}>
-                                Try Demo Map
+                                Work on Default File (Çalıştay Sonrası)
                             </button>
                         </div>
 
