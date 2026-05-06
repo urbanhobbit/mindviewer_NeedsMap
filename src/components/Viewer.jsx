@@ -351,7 +351,7 @@ export default function Viewer() {
                                 fontWeight: '500',
                                 boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                             }}>
-                                Work on Default File (Çalıştay Sonrası)
+                                Work on Default File (Calistay Sonrasi)
                             </button>
                         </div>
 
